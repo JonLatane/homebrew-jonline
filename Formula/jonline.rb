@@ -13,7 +13,7 @@ class Jonline < Formula
   depends_on "libpq"
 
   def install
-    etc.install Dir["*"] => "jonline"
+    (etc/"jonline").install Dir["*"]
     (bin/"jonline").write <<~EOS
       #!/bin/bash
       cd "#{etc}/jonline" && exec ./jonline "$@"
