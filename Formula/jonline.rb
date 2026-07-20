@@ -1,12 +1,13 @@
 # This file is generated and pushed automatically by the Server CI/CD workflow
 # (create_homebrew_release job) in https://github.com/jonlatane/jonline on every
-# release to main. Don't hand-edit it -- changes will be overwritten.
+# release to main. Don't hand-edit it -- changes will be overwritten. The launcher
+# script below is sourced from docs/homebrew_jonline.sh in that repo.
 class Jonline < Formula
   desc "Jonline federated social server"
   homepage "https://github.com/jonlatane/jonline"
-  url "https://github.com/jonlatane/jonline/releases/download/v0.5.540-475850d/jonline-0.5.540-475850d-macos-arm64.tar.gz"
-  sha256 "f5df8d652fa460acab6dce32f7a386d5aca7c4b879e94ec7e6a78d6b6c628a6b"
-  version "0.5.540-475850d"
+  url "https://github.com/jonlatane/jonline/releases/download/v0.5.542-11a1ab6/jonline-0.5.542-11a1ab6-macos-arm64.tar.gz"
+  sha256 "abac2f9d430dfb8f71398888e5665dce9fddd8e0686fe3d20f68b551800103de"
+  version "0.5.542-11a1ab6"
   license "AGPL-3.0-only"
 
   depends_on arch: :arm64
@@ -15,13 +16,172 @@ class Jonline < Formula
   def install
     (etc/"jonline").install Dir["*"]
     (bin/"jonline").write <<~SCRIPT
-      #!/bin/bash
-      cd "#{etc}/jonline" && exec ./jonline "$@"
+                #!/bin/bash
+                #
+                # Source of truth for the `jonline` launcher script installed by Homebrew
+                # (JonLatane/homebrew-jonline) as `bin/jonline`.
+                #
+                # This file is spliced verbatim into Formula/jonline.rb's `install` method by
+                # the "Push Formula/jonline.rb to JonLatane/homebrew-jonline" step of the
+                # Server CI/CD workflow (create_homebrew_release job) in
+                # .github/workflows/server_ci_cd.yml -- don't hand-edit the generated
+                # Formula, edit this file instead.
+                #
+                # The one placeholder below, #{etc}, is replaced by that CI step with
+                # a Ruby string interpolation of the formula's `etc` accessor, which Homebrew
+                # resolves to the formula's installed etc/ prefix (e.g. /opt/homebrew/etc)
+                # when the user runs `brew install`. That path isn't known until install time
+                # and can differ per machine, so it can't be baked in here as a real value --
+                # but aside from that one substitution, this file is plain, valid,
+                # directly-runnable bash (e.g. `bash docs/homebrew_jonline.sh help` works
+                # locally; `server` is the only subcommand that needs the real substitution
+                # to find its install dir).
+                #
+                # NOTE: because this whole file is embedded via an interpolated Ruby heredoc,
+                # any other literal Ruby interpolation syntax written below (a hash followed
+                # immediately by a brace) would also get evaluated by Ruby at formula-write
+                # time. Don't introduce one outside of the #{etc} substitution step.
+                #
+                set -euo pipefail
+                
+                JONLINE_ENV="$HOME/.jonline"
+                if [ ! -f "$JONLINE_ENV" ]; then
+                  cat > "$JONLINE_ENV" <<'JONLINE_ENV_EOF'
+                DATABASE_URL=postgres://localhost/jonline_dev
+                
+                MINIO_ENDPOINT=http://localhost:9000
+                MINIO_REGION=
+                MINIO_BUCKET=jonline-dev
+                MINIO_ACCESS_KEY=ROOTNAME
+                MINIO_SECRET_KEY=CHANGEME123
+                
+                # TLS_CERT_PATH=/path/to/cert.pem
+                JONLINE_ENV_EOF
+                fi
+                
+                set -a
+                source "$JONLINE_ENV"
+                set +a
+                
+                JONLINE_DB_NAME="${JONLINE_DB_NAME:-jonline_dev}"
+                JONLINE_MINIO_CONTAINER="${JONLINE_MINIO_CONTAINER:-jonline-dev-minio}"
+                JONLINE_MINIO_DATA_DIR="${JONLINE_MINIO_DATA_DIR:-$HOME/.jonline-minio-data}"
+                
+                jonline_help() {
+                  cat <<'JONLINE_HELP_EOF'
+                jonline - launcher for the Jonline server and its local dev dependencies
+                
+                Usage: jonline <command> [args...]
+                
+                Relies on Postgres's createdb/dropdb/psql for its local database, and on
+                docker for its local minio (S3-compatible storage). Edit ~/.jonline (created
+                on first run) to point DATABASE_URL/MINIO_* at different instances instead.
+                
+                Quick start:
+                  jonline local_db_create && jonline local_minio_create && jonline server
+                
+                Commands:
+                  server                 Run the Jonline server (jonline-server)
+                  version                Print the Jonline server version (jonline-server --version)
+                
+                  environment            Print the current config (cat ~/.jonline)
+                  edit_environment       Edit the config in $EDITOR (falls back to vi)
+                
+                  local_db_create        Create the local Postgres database (createdb jonline_dev)
+                  local_db_drop          Drop the local Postgres database (dropdb jonline_dev)
+                  local_db_reset         Stop local instances, then drop and recreate the local database
+                  local_db_connect       Connect to the local database with psql ($DATABASE_URL)
+                
+                  local_minio_start      Start the existing local minio docker container
+                  local_minio_create     Start local minio, creating its docker container first if needed
+                  local_minio_delete     Stop and remove the local minio docker container
+                  local_instances_stop   Stop any running jonline-server processes
+                  
+                  help                   Show this help text
+                JONLINE_HELP_EOF
+                }
+                
+                local_db_create() {
+                  createdb "$JONLINE_DB_NAME"
+                }
+                
+                local_db_drop() {
+                  dropdb "$JONLINE_DB_NAME"
+                }
+                
+                local_db_reset() {
+                  local_instances_stop
+                  local_db_drop
+                  local_db_create
+                }
+                
+                local_db_connect() {
+                  psql "$DATABASE_URL"
+                }
+                
+                local_minio_start() {
+                  docker start "$JONLINE_MINIO_CONTAINER"
+                }
+                
+                local_minio_create() {
+                  local_minio_start || _do_local_minio_create
+                }
+                
+                _do_local_minio_create() {
+                  mkdir -p "$JONLINE_MINIO_DATA_DIR"
+                  docker run -d -p 9000:9000 -p 9090:9090 --name "$JONLINE_MINIO_CONTAINER" -v "$JONLINE_MINIO_DATA_DIR:/data" -e "MINIO_ROOT_USER=$MINIO_ACCESS_KEY" -e "MINIO_ROOT_PASSWORD=$MINIO_SECRET_KEY" minio/minio server /data --console-address ":9090"
+                }
+                
+                local_minio_delete() {
+                  docker stop "$JONLINE_MINIO_CONTAINER"
+                  docker rm "$JONLINE_MINIO_CONTAINER"
+                }
+                
+                local_instances_stop() {
+                  killall jonline-server || true
+                }
+                
+                server() {
+                  cd "#{etc}/jonline" && exec ./jonline-server "$@"
+                }
+                
+                version() {
+                  server --version
+                }
+                
+                environment() {
+                  cat "$JONLINE_ENV"
+                }
+                
+                edit_environment() {
+                  # Intentionally unquoted: $EDITOR may be multiple words (e.g. "code --wait").
+                  ${EDITOR:-vi} "$JONLINE_ENV"
+                }
+                
+                cmd="${1:-help}"
+                if [ $# -gt 0 ]; then
+                  shift
+                fi
+                
+                case "$cmd" in
+                  help|-h|--help)
+                    jonline_help
+                    ;;
+                  server|version|environment|edit_environment|local_db_create|local_db_drop|local_db_reset|local_db_connect|local_minio_start|local_minio_create|local_minio_delete|local_instances_stop)
+                    "$cmd" "$@"
+                    ;;
+                  *)
+                    echo "Unknown command: $cmd" >&2
+                    echo >&2
+                    jonline_help >&2
+                    exit 1
+                    ;;
+                esac
     SCRIPT
     chmod 0755, bin/"jonline"
   end
 
   test do
-    system "#{bin}/jonline", "--version"
+    system "#{bin}/jonline", "version"
   end
 end
