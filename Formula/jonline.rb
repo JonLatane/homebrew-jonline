@@ -5,9 +5,9 @@
 class Jonline < Formula
   desc "Jonline federated social server"
   homepage "https://github.com/jonlatane/jonline"
-  url "https://github.com/jonlatane/jonline/releases/download/v0.5.547-737f39e/jonline-0.5.547-737f39e-macos-arm64.tar.gz"
-  sha256 "6a5b2eaa518f5b9e0edd5c3fef8e976c0a151d50c69347aefb0d7cf8f2b7135f"
-  version "0.5.547-737f39e"
+  url "https://github.com/jonlatane/jonline/releases/download/v0.5.548-622828c/jonline-0.5.548-622828c-macos-arm64.tar.gz"
+  sha256 "52ae045d87988174c176ab33e92f36269e9210e1950cc000b1dd0f428e857a1f"
+  version "0.5.548-622828c"
   license "AGPL-3.0-only"
 
   depends_on arch: :arm64
@@ -90,7 +90,12 @@ class Jonline < Formula
                 
                   Core/Lifecycle:
                 
+                    server_and_jobs          Run the Jonline server and background jobs together
+                                             (forks server + jobs, see below)
                     server                   Run the Jonline server (jonline-server)
+                    jobs                     Run background jobs on a loop (#{etc}/jonline/background_jobs.sh) --
+                                             delete_expired_tokens every 2m, delete_unowned_media every 8h,
+                                             sync_event_sync_sources every 1m, ...
                     version                  Print the Jonline server version (jonline-server --version)
                     local_instances_stop     Stop any running jonline-server processes
                     help                     Show this help text
@@ -115,6 +120,8 @@ class Jonline < Formula
                 
                     delete_expired_tokens    Delete expired auth tokens from the database
                     delete_unowned_media     Delete media no longer referenced by any post/user/etc.
+                    sync_event_sync_sources  Sync any EventSyncSource (ICS subscription) that's due, per its
+                                             sync_interval_seconds/last_synced_at
                     generate_preview_images  Generate media preview images -- NOT currently supported on
                                              macOS: it launches a browser hardcoded to /usr/bin/brave-browser,
                                              a Linux path that Homebrew's Brave cask doesn't populate (and
@@ -191,6 +198,23 @@ class Jonline < Formula
                   _jonline_exec_bin jonline-server "$@"
                 }
                 
+                # Runs background_jobs.sh (resolves its own job binaries -- see
+                # backend/background_jobs.sh).
+                jobs() {
+                  cd "#{etc}/jonline" && exec ./background_jobs.sh "$@"
+                }
+                
+                # Forks `server` and `jobs`, killing both if either the script exits or one
+                # of them dies.
+                server_and_jobs() {
+                  jobs &
+                  local jobs_pid=$!
+                  server &
+                  local server_pid=$!
+                  trap 'kill "$jobs_pid" "$server_pid" 2>/dev/null || true' EXIT TERM INT
+                  wait
+                }
+                
                 version() {
                   server --version
                 }
@@ -202,6 +226,10 @@ class Jonline < Formula
                 
                 delete_unowned_media() {
                   _jonline_exec_bin delete_unowned_media "$@"
+                }
+                
+                sync_event_sync_sources() {
+                  _jonline_exec_bin sync_event_sync_sources "$@"
                 }
                 
                 # Renders media preview images headlessly via a browser hardcoded to
@@ -257,7 +285,7 @@ class Jonline < Formula
                   help|-h|--help)
                     jonline_help
                     ;;
-                  server|version|environment|edit_environment|local_db_create|local_db_drop|local_db_reset|local_db_connect|local_minio_start|local_minio_create|local_minio_delete|local_instances_stop|delete_expired_tokens|delete_unowned_media|generate_preview_images|set_permission|delete_preview_images|disable_cdn_grpc|to_db_id|to_proto_id|grpcurl)
+                  server_and_jobs|server|jobs|version|environment|edit_environment|local_db_create|local_db_drop|local_db_reset|local_db_connect|local_minio_start|local_minio_create|local_minio_delete|local_instances_stop|delete_expired_tokens|delete_unowned_media|sync_event_sync_sources|generate_preview_images|set_permission|delete_preview_images|disable_cdn_grpc|to_db_id|to_proto_id|grpcurl)
                     "$cmd" "$@"
                     ;;
                   *)
