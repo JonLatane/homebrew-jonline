@@ -5,9 +5,9 @@
 class Jonline < Formula
   desc "Jonline federated social server"
   homepage "https://github.com/jonlatane/jonline"
-  url "https://github.com/jonlatane/jonline/releases/download/v0.5.548-e1016f3/jonline-0.5.548-e1016f3-macos-arm64.tar.gz"
-  sha256 "b491dc6f608c0810e656a8eefc2c4ece0cf639541c22a962eb4ad3035da07482"
-  version "0.5.548-e1016f3"
+  url "https://github.com/jonlatane/jonline/releases/download/v0.5.548-c7fe18c/jonline-0.5.548-c7fe18c-macos-arm64.tar.gz"
+  sha256 "9e15f578813d553e2f047a4b12d2a29d5155b7d170a29c4de81fc4e0878cff19"
+  version "0.5.548-c7fe18c"
   license "AGPL-3.0-only"
 
   depends_on arch: :arm64
@@ -68,6 +68,22 @@ class Jonline < Formula
                 JONLINE_MINIO_CONTAINER="${JONLINE_MINIO_CONTAINER:-jonline-dev-minio}"
                 JONLINE_MINIO_DATA_DIR="${JONLINE_MINIO_DATA_DIR:-$HOME/.jonline-minio-data}"
                 
+                # Single source of truth for valid subcommands -- used both to dispatch (see
+                # bottom of file) and to answer `jonline --list-commands`, which the
+                # completion scripts printed by `completion()` shell out to. Keep this in
+                # sync with the functions defined below (nothing else auto-derives it).
+                JONLINE_COMMANDS=(
+                  help
+                  server_and_jobs server jobs version local_instances_stop
+                  environment edit_environment
+                  local_db_create local_db_drop local_db_reset local_db_connect
+                  local_minio_start local_minio_create local_minio_delete
+                  delete_expired_tokens delete_unowned_media sync_event_sync_sources update_user_counts generate_preview_images
+                  set_permission delete_preview_images disable_cdn_grpc
+                  to_db_id to_proto_id grpcurl
+                  completion
+                )
+                
                 jonline_help() {
                   cat <<'JONLINE_HELP_EOF'
                 jonline - launcher for the Jonline server and its local dev dependencies
@@ -95,7 +111,7 @@ class Jonline < Formula
                     server                   Run the Jonline server (jonline-server)
                     jobs                     Run background jobs on a loop (#{etc}/jonline/background_jobs.sh) --
                                              delete_expired_tokens every 2m, delete_unowned_media every 8h,
-                                             sync_event_sync_sources every 1m, ...
+                                             sync_event_sync_sources every 1m, update_user_counts every 1h, ...
                     version                  Print the Jonline server version (jonline-server --version)
                     local_instances_stop     Stop any running jonline-server processes
                     help                     Show this help text
@@ -122,6 +138,8 @@ class Jonline < Formula
                     delete_unowned_media     Delete media no longer referenced by any post/user/etc.
                     sync_event_sync_sources  Sync any EventSyncSource (ICS subscription) that's due, per its
                                              sync_interval_seconds/last_synced_at
+                    update_user_counts       Recompute follower/following/friend/group/post/response/event/
+                                             event_instance counts for every User, correcting any drift
                     generate_preview_images  Generate media preview images -- NOT currently supported on
                                              macOS: it launches a browser hardcoded to /usr/bin/brave-browser,
                                              a Linux path that Homebrew's Brave cask doesn't populate (and
@@ -143,7 +161,20 @@ class Jonline < Formula
                     to_proto_id              Convert a database (internal) ID to a proto (external, string) ID
                     grpcurl                  Run the bundled grpcurl. "Like curl, but for gRPC."
                                              (https://github.com/fullstorydev/grpcurl)
+                
+                  Shell completion:
+                
+                    completion <bash|zsh>    Print a tab-completion script for the given shell. Homebrew
+                                             installs this automatically; to wire it up by hand instead
+                                             (`eval "$(...)"`, not `source <(...)` -- macOS's stock
+                                             /bin/bash (3.2) can't `source` a process substitution):
+                                               echo 'eval "$(jonline completion bash)"' >> ~/.bashrc
+                                               echo 'eval "$(jonline completion zsh)"' >> ~/.zshrc
                 JONLINE_HELP_EOF
+                }
+                
+                help() {
+                  jonline_help
                 }
                 
                 local_db_create() {
@@ -232,6 +263,10 @@ class Jonline < Formula
                   _jonline_exec_bin sync_event_sync_sources "$@"
                 }
                 
+                update_user_counts() {
+                  _jonline_exec_bin update_user_counts "$@"
+                }
+                
                 # Renders media preview images headlessly via a browser hardcoded to
                 # /usr/bin/brave-browser -- a Linux path, not populated by Homebrew's Brave
                 # cask and not writable on macOS due to SIP -- plus extensions expected at
@@ -276,27 +311,82 @@ class Jonline < Formula
                   ${EDITOR:-vi} "$JONLINE_ENV"
                 }
                 
+                # Prints a tab-completion script for the given shell. Both scripts shell out
+                # to `jonline --list-commands` (backed by JONLINE_COMMANDS above) rather than
+                # embedding a static list, so completions stay in sync as commands are added
+                # without needing to regenerate/re-source anything.
+                completion() {
+                  case "${1:-}" in
+                    bash)
+                      cat <<'JONLINE_BASH_COMPLETION_EOF'
+                _jonline_complete() {
+                  local cur
+                  cur="${COMP_WORDS[COMP_CWORD]}"
+                  if [ "$COMP_CWORD" -eq 1 ]; then
+                    COMPREPLY=( $(compgen -W "$(jonline --list-commands)" -- "$cur") )
+                  fi
+                }
+                complete -F _jonline_complete jonline
+                JONLINE_BASH_COMPLETION_EOF
+                      ;;
+                    zsh)
+                      cat <<'JONLINE_ZSH_COMPLETION_EOF'
+                #compdef jonline
+                _jonline() {
+                  local -a commands
+                  commands=(${(f)"$(jonline --list-commands)"})
+                  _describe 'command' commands
+                }
+                compdef _jonline jonline
+                JONLINE_ZSH_COMPLETION_EOF
+                      ;;
+                    *)
+                      echo "Usage: jonline completion <bash|zsh>" >&2
+                      exit 1
+                      ;;
+                  esac
+                }
+                
+                # Checks $1 against JONLINE_COMMANDS -- the single source of truth used both
+                # here (dispatch) and by `jonline --list-commands` (completion scripts).
+                _jonline_is_command() {
+                  local c
+                  for c in "${JONLINE_COMMANDS[@]}"; do
+                    [ "$c" = "$1" ] && return 0
+                  done
+                  return 1
+                }
+                
                 cmd="${1:-help}"
                 if [ $# -gt 0 ]; then
                   shift
                 fi
                 
                 case "$cmd" in
-                  help|-h|--help)
-                    jonline_help
-                    ;;
-                  server_and_jobs|server|jobs|version|environment|edit_environment|local_db_create|local_db_drop|local_db_reset|local_db_connect|local_minio_start|local_minio_create|local_minio_delete|local_instances_stop|delete_expired_tokens|delete_unowned_media|sync_event_sync_sources|generate_preview_images|set_permission|delete_preview_images|disable_cdn_grpc|to_db_id|to_proto_id|grpcurl)
-                    "$cmd" "$@"
-                    ;;
-                  *)
-                    echo "Unknown command: $cmd" >&2
-                    echo >&2
-                    jonline_help >&2
-                    exit 1
+                  -h|--help)
+                    cmd=help
                     ;;
                 esac
+                
+                if [ "$cmd" = "--list-commands" ]; then
+                  printf '%s\n' "${JONLINE_COMMANDS[@]}"
+                elif _jonline_is_command "$cmd"; then
+                  "$cmd" "$@"
+                else
+                  echo "Unknown command: $cmd" >&2
+                  echo >&2
+                  jonline_help >&2
+                  exit 1
+                fi
     SCRIPT
     chmod 0755, bin/"jonline"
+
+    # bin/"jonline" implements `completion bash`/`completion zsh` (see
+    # docs/homebrew_jonline.sh); shell_parameter_format: :arg runs it as
+    # `jonline completion bash`/`jonline completion zsh` to capture the
+    # scripts, which Homebrew installs into the right completions dirs.
+    generate_completions_from_executable(bin/"jonline", "completion", shell_parameter_format: :arg,
+                                                                       shells:                 [:bash, :zsh])
   end
 
   test do
