@@ -5,9 +5,9 @@
 class Jonline < Formula
   desc "Jonline federated social server"
   homepage "https://github.com/jonlatane/jonline"
-  url "https://github.com/jonlatane/jonline/releases/download/v0.5.549-394d42c/jonline-0.5.549-394d42c-macos-arm64.tar.gz"
-  sha256 "32994616c41627ab30fad5ba4fa26c65de9dc94841059e298aa2db5053f6c413"
-  version "0.5.549-394d42c"
+  url "https://github.com/jonlatane/jonline/releases/download/v0.5.550-c3211ea/jonline-0.5.550-c3211ea-macos-arm64.tar.gz"
+  sha256 "2ce7ec3716fe9105d715b92464ee94d8b7c2f4ba9a20c9c88a31d0cb3e5f05a4"
+  version "0.5.550-c3211ea"
   license "AGPL-3.0-only"
 
   depends_on arch: :arm64
@@ -382,11 +382,13 @@ class Jonline < Formula
     chmod 0755, bin/"jonline"
 
     # bin/"jonline" implements `completion bash`/`completion zsh` (see
-    # docs/homebrew_jonline.sh); shell_parameter_format: :arg runs it as
-    # `jonline completion bash`/`jonline completion zsh` to capture the
-    # scripts, which Homebrew installs into the right completions dirs.
-    generate_completions_from_executable(bin/"jonline", "completion", shell_parameter_format: :arg,
-                                                                       shells:                 [:bash, :zsh])
+    # docs/homebrew_jonline.sh) as a positional arg, not a `--shell=`
+    # flag, so shell_parameter_format is left at its nil default --
+    # Homebrew's :arg format actually means `--shell=bash`, despite
+    # the name. This runs `jonline completion bash`/`completion zsh`
+    # to capture the scripts, which Homebrew installs into the
+    # right completions dirs.
+    generate_completions_from_executable(bin/"jonline", "completion", shells: [:bash, :zsh])
   end
 
   test do
