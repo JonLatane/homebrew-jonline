@@ -5,9 +5,9 @@
 class Jonline < Formula
   desc "Jonline federated social server"
   homepage "https://github.com/jonlatane/jonline"
-  url "https://github.com/jonlatane/jonline/releases/download/v0.5.550-c3211ea/jonline-0.5.550-c3211ea-macos-arm64.tar.gz"
-  sha256 "2ce7ec3716fe9105d715b92464ee94d8b7c2f4ba9a20c9c88a31d0cb3e5f05a4"
-  version "0.5.550-c3211ea"
+  url "https://github.com/jonlatane/jonline/releases/download/v0.5.551-4fecc9c/jonline-0.5.551-4fecc9c-macos-arm64.tar.gz"
+  sha256 "eb1c7633274cf0aeaff01182cd5e217a3ff7465433af4ddb0eeb07d11903fa19"
+  version "0.5.551-4fecc9c"
   license "AGPL-3.0-only"
 
   depends_on arch: :arm64
